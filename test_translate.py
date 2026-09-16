@@ -1,10 +1,12 @@
 import os
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import dotenv
 import httpx2
+import translate_history
 from openai import (
     APIConnectionError,
     APIStatusError,
@@ -51,6 +53,18 @@ def make_status_error(error_type, status_code):
 
 
 class TestTranslate(unittest.TestCase):
+    def assert_input_error(self, text, source_language, target_language):
+        with patch.dict(
+            os.environ,
+            {"DEEPSEEK_API_KEY": "test-key"},
+            clear=True,
+        ):
+            with patch("translate.OpenAI") as mock_openai:
+                with self.assertRaises(TranslationInputError):
+                    translate(text, source_language, target_language)
+
+                mock_openai.assert_not_called()
+
     def test_missing_api_key(self):
         with patch.dict(os.environ, {}, clear=True):
             with patch("translate.OpenAI") as mock_openai:
@@ -59,26 +73,23 @@ class TestTranslate(unittest.TestCase):
                 mock_openai.assert_not_called()
 
     def test_empty_text(self):
-        with patch.dict(
-            os.environ,
-            {"DEEPSEEK_API_KEY": "test-key"},
-            clear=True,
-        ):
-            with self.assertRaises(TranslationInputError):
-                translate("   ", "中文", "英语")
+        self.assert_input_error("   ", "中文", "英语")
+
+    def test_non_string_text(self):
+        self.assert_input_error(None, "中文", "英语")
 
     def test_text_too_long(self):
-        with patch.dict(
-            os.environ,
-            {"DEEPSEEK_API_KEY": "test-key"},
-            clear=True,
-        ):
-            with self.assertRaises(TranslationInputError):
-                translate(
-                    "a" * (MAX_TEXT_LENGTH + 1),
-                    "中文",
-                    "英语",
-                )
+        self.assert_input_error(
+            "a" * (MAX_TEXT_LENGTH + 1),
+            "中文",
+            "英语",
+        )
+
+    def test_empty_source_language(self):
+        self.assert_input_error("你好", "   ", "英语")
+
+    def test_empty_target_language(self):
+        self.assert_input_error("你好", "中文", "   ")
 
     def test_success_and_timeout(self):
         with patch.dict(
@@ -94,10 +105,17 @@ class TestTranslate(unittest.TestCase):
                 result = translate("你好", "中文", "英语")
 
                 self.assertEqual(result, "Hello")
-                self.assertEqual(
-                    mock_openai.call_args.kwargs["timeout"],
-                    REQUEST_TIMEOUT,
+                mock_openai.assert_called_once_with(
+                    api_key="test-key",
+                    base_url="https://api.deepseek.com",
+                    timeout=REQUEST_TIMEOUT,
                 )
+                mock_openai.return_value.chat.completions.create.assert_called_once()
+                create_kwargs = (
+                    mock_openai.return_value.chat.completions.create.call_args.kwargs
+                )
+                self.assertEqual(create_kwargs["model"], "deepseek-v4-pro")
+                self.assertFalse(create_kwargs["stream"])
 
     def test_empty_choices(self):
         with patch.dict(
@@ -108,6 +126,22 @@ class TestTranslate(unittest.TestCase):
             with patch("translate.OpenAI") as mock_openai:
                 response = MagicMock()
                 response.choices = []
+                mock_openai.return_value.chat.completions.create.return_value = (
+                    response
+                )
+
+                with self.assertRaises(TranslationResponseError):
+                    translate("你好", "中文", "英语")
+
+    def test_malformed_response(self):
+        with patch.dict(
+            os.environ,
+            {"DEEPSEEK_API_KEY": "test-key"},
+            clear=True,
+        ):
+            with patch("translate.OpenAI") as mock_openai:
+                response = MagicMock()
+                response.choices = None
                 mock_openai.return_value.chat.completions.create.return_value = (
                     response
                 )
@@ -222,11 +256,13 @@ class TestCli(unittest.TestCase):
 
 class TestHistory(unittest.TestCase):
     def test_save_history(self):
-        original_directory = os.getcwd()
-
         with tempfile.TemporaryDirectory() as temp_dir:
-            try:
-                os.chdir(temp_dir)
+            history_path = Path(temp_dir) / "translation_history.txt"
+            with patch.object(
+                translate_history,
+                "HISTORY_FILE",
+                str(history_path),
+            ):
                 save_translate_history(
                     "中文",
                     "英语",
@@ -234,14 +270,7 @@ class TestHistory(unittest.TestCase):
                     "Hello",
                 )
 
-                with open(
-                    "translation_history.txt",
-                    "r",
-                    encoding="utf-8",
-                ) as file:
-                    content = file.read()
-            finally:
-                os.chdir(original_directory)
+            content = history_path.read_text(encoding="utf-8")
 
         self.assertIn("源语言：中文", content)
         self.assertIn("目标语言：英语", content)

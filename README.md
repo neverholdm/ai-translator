@@ -148,7 +148,7 @@ ai-translator/
 ├── translate.py             # 翻译核心逻辑
 ├── translate_history.py     # 翻译历史记录管理
 ├── logger.py                # 日志配置
-├── test.py                  # 自动化测试
+├── test_translate.py        # 自动化测试
 ├── requirements.txt         # Python 依赖
 ├── assets/
 │   └── gui.png              # GUI 截图

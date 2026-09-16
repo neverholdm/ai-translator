@@ -1,2 +1,4 @@
-openai
-python-dotenv
+openai>=3.2.0,<4.0.0
+python-dotenv>=1.1.0,<2.0.0
+httpx2>=2.11.0,<3.0.0
+pytest>=8.0,<10.0
