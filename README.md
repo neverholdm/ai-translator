@@ -110,7 +110,7 @@ python main.py
 
 ```text
 1. 开始翻译
-2. 查看历史记录
+2. 管理历史记录
 3. 退出
 ```
 
@@ -126,6 +126,8 @@ GUI 支持：
 - 选择源语言
 - 选择目标语言
 - 查看翻译结果
+- 查看、搜索、删除和清空翻译历史
+- 导出翻译历史为 CSV
 
 ---
 
@@ -135,7 +137,7 @@ GUI 支持：
 python -m unittest
 ```
 
-测试使用 Mock，不会调用真实 API，避免产生额外费用。
+测试使用 Mock，不会调用真实 API；历史记录测试使用临时 SQLite 数据库，不会访问本机真实历史。
 
 ---
 
@@ -154,7 +156,6 @@ ai-translator/
 │   └── gui.png              # GUI 截图
 ├── .env.example             # API 配置示例
 ├── .env                    # 本地 API 配置，不提交到 Git
-├── translation_history.txt  # 本地翻译历史，不提交到 Git
 └── app.log                  # 本地运行日志，不提交到 Git
 ```
 
@@ -180,7 +181,15 @@ DEEPSEEK_API_KEY=your_api_key_here
 
 ### 翻译历史保存在哪里
 
-成功的翻译记录会保存到 `translation_history.txt`，该文件仅保存在本地。
+成功的翻译记录会保存到本机用户数据目录中的 SQLite 数据库：
+
+- Windows：`%LOCALAPPDATA%\AiTranslator\history.sqlite3`
+- macOS：`~/Library/Application Support/AiTranslator/history.sqlite3`
+- Linux：`$XDG_DATA_HOME/AiTranslator/history.sqlite3`；未设置时为 `~/.local/share/AiTranslator/history.sqlite3`
+
+数据库在首次保存或查看历史时创建，不会写入项目源码目录。已有的 `translation_history.txt` 不会被读取、修改或自动迁移。
+
+在 CLI 的“管理历史记录”菜单或 GUI 的历史按钮区，可以查看、按关键词搜索、删除单条、清空以及导出 CSV。导出使用 UTF-8 BOM 编码，便于 Excel 识别中文；为防止误覆盖，目标 CSV 已存在时会拒绝导出。
 
 ---
 
@@ -190,7 +199,7 @@ DEEPSEEK_API_KEY=your_api_key_here
 - `.env` 只保存在本地，不要提交到 GitHub
 - 不要公开或分享自己的 API Key
 - 不要把真实 API Key 写入代码
-- 不要提交 `app.log`、`translation_history.txt` 等本地生成文件
+- 不要提交 `app.log`、`history.sqlite3`、导出的 CSV 等本地生成文件
 - 使用本项目产生的 API 费用由使用者自行承担
 
 ---
@@ -199,7 +208,6 @@ DEEPSEEK_API_KEY=your_api_key_here
 
 - [ ] 支持更多语言
 - [ ] 优化 GUI 界面
-- [ ] 增加翻译历史搜索功能
 - [ ] 提供 Windows 可执行文件
 - [ ] 增加更多自动化测试
 - [ ] 支持更多 AI 模型和服务商

@@ -1,3 +1,4 @@
+import csv
 import os
 import tempfile
 import unittest
@@ -255,27 +256,68 @@ class TestCli(unittest.TestCase):
 
 
 class TestHistory(unittest.TestCase):
-    def test_save_history(self):
+    def test_save_and_load_history_uses_temporary_database(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            history_path = Path(temp_dir) / "translation_history.txt"
-            with patch.object(
-                translate_history,
-                "HISTORY_FILE",
-                str(history_path),
-            ):
-                save_translate_history(
+            database_path = Path(temp_dir) / "history.sqlite3"
+            with patch.object(translate_history, "DATABASE_PATH", database_path):
+                save_translate_history("中文", "英语", "你好", "Hello")
+                records = translate_history.load_records()
+
+            self.assertTrue(database_path.exists())
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["source_language"], "中文")
+        self.assertEqual(records[0]["target_language"], "英语")
+        self.assertEqual(records[0]["source"], "你好")
+        self.assertEqual(records[0]["target"], "Hello")
+        self.assertIsInstance(records[0]["id"], int)
+
+    def test_search_delete_clear_and_export_history(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "history.sqlite3"
+            export_path = Path(temp_dir) / "history.csv"
+            with patch.object(translate_history, "DATABASE_PATH", database_path):
+                translate_history.save_record(
                     "中文",
                     "英语",
-                    "你好",
+                    "第一行\n第二行 100%_",
                     "Hello",
+                    "2026-09-16 10:00:00",
+                )
+                translate_history.save_record(
+                    "英语",
+                    "中文",
+                    "Good morning",
+                    "早上好",
+                    "2026-09-16 10:01:00",
                 )
 
-            content = history_path.read_text(encoding="utf-8")
+                records = translate_history.load_records()
+                self.assertEqual(len(translate_history.search_records("%_")), 1)
+                self.assertEqual(len(translate_history.search_records("早上")), 1)
+                self.assertEqual(translate_history.export_records(export_path), 2)
+                self.assertTrue(translate_history.delete_record(records[0]["id"]))
+                self.assertFalse(translate_history.delete_record(records[0]["id"]))
+                self.assertEqual(translate_history.clear_records(), 1)
+                self.assertEqual(translate_history.load_records(), [])
 
-        self.assertIn("源语言：中文", content)
-        self.assertIn("目标语言：英语", content)
-        self.assertIn("原文：你好", content)
-        self.assertIn("译文：Hello", content)
+            with export_path.open(encoding="utf-8-sig", newline="") as output:
+                exported = list(csv.DictReader(output))
+
+        self.assertEqual(exported[0]["source"], "第一行\n第二行 100%_")
+        self.assertEqual(exported[1]["target"], "早上好")
+
+    def test_failed_save_rolls_back(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "history.sqlite3"
+            with patch.object(translate_history, "DATABASE_PATH", database_path):
+                translate_history.save_record("中文", "英语", "你好", "Hello")
+                with self.assertRaises(translate_history.HistoryError):
+                    translate_history.save_record("中文", "英语", "失败记录", None)
+                records = translate_history.load_records()
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["source"], "你好")
 
 
 if __name__ == "__main__":
